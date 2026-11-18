@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppFunctionAppMetadata xmlns:appfn="http://schemas.android.com/apk/androidx.appfunctions"
+    appfn:description="Grocery shopping list app (German: Einkaufsliste). Users ask things like 'Setz Milch und Brot auf die Einkaufsliste' or 'Was steht auf meiner Einkaufsliste?'.
+Operational Patterns:
+  - To add products call 'addItems' with one list entry per product. Keep quantities inside the entry text, for example '2 Liter Milch' or '6 Eier'.
+  - To answer questions about the list call 'getShoppingList'.
+  - To mark something as bought call 'checkOffItem' with the product name.
+Constraints:
+  - Product names are usually German; keep the user's wording."
+    appfn:displayDescription="@string/app_function_app_display_description" />
