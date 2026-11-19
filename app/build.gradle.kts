@@ -17,6 +17,10 @@ android {
         targetSdk = 37
         versionCode = buildNumber
         versionName = "1.0.$buildNumber"
+
+        // Only 64-bit ARM (every current phone): keeps the ML Kit native libraries out of the APK
+        // for other processor types and makes the APK much smaller.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     signingConfigs {

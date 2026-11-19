@@ -44,7 +44,7 @@ enum class PriceRegion(
         val lat = location.lat
         val lon = location.lon
         val hasPos = lat != null && lon != null
-        if (hasPos && distanceKm(this.lat!!, this.lon!!, lat!!, lon!!) > radiusKm) return false
+        if (hasPos && distanceKm(this.lat!!, this.lon!!, lat, lon) > radiusKm) return false
         val cityName = location.city.orEmpty()
         if (cityName.isNotEmpty()) {
             return cityRegex.containsMatchIn(cityName) && notCity?.containsMatchIn(cityName) != true
