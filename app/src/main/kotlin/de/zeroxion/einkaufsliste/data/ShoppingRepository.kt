@@ -24,8 +24,12 @@ class ShoppingRepository private constructor(private val file: File) {
     private val _items = MutableStateFlow(load())
     val items: StateFlow<List<ShoppingItem>> = _items.asStateFlow()
 
-    /** Result of adding products: what is new and what already was on the list. */
-    data class AddResult(val added: List<ShoppingItem>, val updated: List<ShoppingItem>) {
+    /** Result of adding products: what is new, what already was on the list, and its old state (for undo). */
+    data class AddResult(
+        val added: List<ShoppingItem>,
+        val updated: List<ShoppingItem>,
+        val previous: List<ShoppingItem>,
+    ) {
         val all: List<ShoppingItem> get() = added + updated
         val count: Int get() = added.size + updated.size
     }
@@ -33,24 +37,28 @@ class ShoppingRepository private constructor(private val file: File) {
     suspend fun add(parsed: List<ParsedItem>): AddResult = mutate { list ->
         val added = mutableListOf<ShoppingItem>()
         val updated = mutableListOf<ShoppingItem>()
+        val previous = mutableListOf<ShoppingItem>()
         val now = System.currentTimeMillis()
         for (p in parsed) {
             val index = list.indexOfFirst { it.name.equals(p.name, ignoreCase = true) }
             if (index >= 0) {
-                // Already known: put it back on the open list and take the new quantity.
+                // Already known: put it back on the open list and take the new amount if one was given.
                 val existing = list[index]
                 val merged = existing.copy(
                     checked = false,
                     checkedAt = null,
-                    quantity = p.quantity ?: existing.quantity,
+                    amount = p.amount ?: if (existing.checked) 1.0 else existing.amount,
+                    unit = if (p.amount != null) p.unit else if (existing.checked) null else existing.unit,
                 )
                 list[index] = merged
+                previous += existing
                 updated += merged
             } else {
                 val item = ShoppingItem(
                     id = UUID.randomUUID().toString(),
                     name = p.name,
-                    quantity = p.quantity,
+                    amount = p.amount ?: 1.0,
+                    unit = p.unit,
                     category = Category.guess(p.name),
                     checked = false,
                     createdAt = now + added.size,
@@ -59,7 +67,7 @@ class ShoppingRepository private constructor(private val file: File) {
                 added += item
             }
         }
-        AddResult(added, updated)
+        AddResult(added, updated, previous)
     }
 
     suspend fun setChecked(id: String, checked: Boolean) = mutate { list ->
@@ -69,10 +77,25 @@ class ShoppingRepository private constructor(private val file: File) {
         }
     }
 
-    suspend fun update(id: String, name: String, quantity: String?, category: Category) = mutate { list ->
+    suspend fun update(id: String, name: String, amount: Double, unit: String?, category: Category) = mutate { list ->
         val i = list.indexOfFirst { it.id == id }
         if (i >= 0 && name.isNotBlank()) {
-            list[i] = list[i].copy(name = name.trim(), quantity = quantity?.trim()?.ifBlank { null }, category = category)
+            list[i] = list[i].copy(
+                name = name.trim(),
+                amount = amount.coerceAtLeast(0.01),
+                unit = unit?.trim()?.ifBlank { null },
+                category = category,
+            )
+        }
+    }
+
+    /** Plus/minus button: steps the amount based on the current value (safe for fast taps). */
+    suspend fun stepAmount(id: String, up: Boolean) = mutate { list ->
+        val i = list.indexOfFirst { it.id == id }
+        if (i >= 0) {
+            val item = list[i]
+            val next = if (up) Quantity.increase(item.amount, item.unit) else Quantity.decrease(item.amount, item.unit)
+            list[i] = item.copy(amount = next)
         }
     }
 
@@ -81,9 +104,13 @@ class ShoppingRepository private constructor(private val file: File) {
         if (i >= 0) list.removeAt(i) else null
     }
 
-    suspend fun restore(items: List<ShoppingItem>) = mutate { list ->
-        val ids = list.map { it.id }.toSet()
-        list += items.filter { it.id !in ids }
+    /** Undo helper: removes [removeIds] and puts [items] back in their old state. */
+    suspend fun restore(items: List<ShoppingItem>, removeIds: Collection<String> = emptyList()) = mutate { list ->
+        if (removeIds.isNotEmpty()) list.removeAll { it.id in removeIds }
+        for (item in items) {
+            val i = list.indexOfFirst { it.id == item.id }
+            if (i >= 0) list[i] = item else list += item
+        }
     }
 
     suspend fun clearChecked(): List<ShoppingItem> = mutate { list ->

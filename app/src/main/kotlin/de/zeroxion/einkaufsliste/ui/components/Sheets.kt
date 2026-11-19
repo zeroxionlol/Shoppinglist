@@ -55,7 +55,7 @@ import de.zeroxion.einkaufsliste.ui.theme.BrandGradient
 fun EditItemSheet(
     item: ShoppingItem,
     onDismiss: () -> Unit,
-    onSave: (name: String, quantity: String?, category: Category) -> Unit,
+    onSave: (name: String, quantity: String, category: Category) -> Unit,
     onDelete: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -85,7 +85,7 @@ fun EditItemSheet(
             OutlinedTextField(
                 value = quantity,
                 onValueChange = { quantity = it },
-                label = { Text("Menge (z. B. 2 l, 500 g, 6)") },
+                label = { Text("Menge (z. B. 2, 500 g, 3 Packungen)") },
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -168,7 +168,13 @@ fun VoiceHelpSheet(
                 emoji = "🎙️",
                 title = "Einfach sagen",
                 text = "Tippe aufs Mikrofon und sag z. B. „Zwei Liter Milch, Brot und sechs Eier“. " +
-                    "Mengen und Kategorien erkennt die App selbst.",
+                    "Mengen und Kategorien erkennt die App selbst. Mit − und + stellst du die Anzahl ein.",
+            )
+            HelpCard(
+                emoji = "📋",
+                title = "Liste einfügen",
+                text = "Kopiere eine Liste, z. B. aus WhatsApp, und füge sie ins Eingabefeld ein " +
+                    "(oder ⋮ → „Aus Zwischenablage einfügen“). Jede Zeile wird ein eigenes Produkt.",
             )
             HelpCard(
                 emoji = "✨",

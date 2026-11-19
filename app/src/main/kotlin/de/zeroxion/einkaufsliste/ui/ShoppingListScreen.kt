@@ -2,6 +2,7 @@ package de.zeroxion.einkaufsliste.ui
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Build
 import android.speech.RecognizerIntent
@@ -87,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.appfunctions.AppFunctionManager
 import de.zeroxion.einkaufsliste.R
 import de.zeroxion.einkaufsliste.data.ShoppingItem
+import de.zeroxion.einkaufsliste.parsing.ItemParser
 import de.zeroxion.einkaufsliste.ui.components.CategoryHeader
 import de.zeroxion.einkaufsliste.ui.components.CheckedHeader
 import de.zeroxion.einkaufsliste.ui.components.EditItemSheet
@@ -146,10 +148,10 @@ fun ShoppingListScreen(viewModel: ShoppingViewModel) {
             snackbarHostState.currentSnackbarData?.dismiss()
             val result = snackbarHostState.showSnackbar(
                 message = msg.text,
-                actionLabel = if (msg.undo.isNotEmpty()) "Rückgängig" else null,
+                actionLabel = if (msg.canUndo) "Rückgängig" else null,
                 duration = SnackbarDuration.Short,
             )
-            if (result == SnackbarResult.ActionPerformed) viewModel.undo(msg.undo)
+            if (result == SnackbarResult.ActionPerformed) viewModel.undo(msg)
         }
     }
 
@@ -170,6 +172,36 @@ fun ShoppingListScreen(viewModel: ShoppingViewModel) {
         if (input.isNotBlank()) {
             viewModel.addFromText(input)
             input = ""
+        }
+    }
+
+    // Pasting a multi-line list (e.g. from WhatsApp) adds one product per line right away.
+    // A single line break at the end comes from the Enter key and simply submits.
+    val onInputChange: (String) -> Unit = { new ->
+        when {
+            ItemParser.isMultiLine(new) -> {
+                viewModel.addFromText(new, source = "Eingefügt")
+                input = ""
+            }
+            new.contains('\n') -> {
+                input = new.replace("\r", "").replace("\n", " ").trim()
+                submit()
+            }
+            else -> input = new
+        }
+    }
+
+    val pasteFromClipboard: () -> Unit = {
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        val text = clipboard?.primaryClip
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.coerceToText(context)
+            ?.toString()
+        if (text.isNullOrBlank()) {
+            viewModel.showMessage("Die Zwischenablage ist leer")
+        } else {
+            viewModel.addFromText(text, source = "Eingefügt")
         }
     }
 
@@ -202,6 +234,13 @@ fun ShoppingListScreen(viewModel: ShoppingViewModel) {
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
+                                text = { Text("Aus Zwischenablage einfügen") },
+                                onClick = {
+                                    menuOpen = false
+                                    pasteFromClipboard()
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Erledigte entfernen") },
                                 enabled = state.checkedCount > 0,
                                 onClick = {
@@ -230,7 +269,7 @@ fun ShoppingListScreen(viewModel: ShoppingViewModel) {
         bottomBar = {
             AddBar(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = onInputChange,
                 onSubmit = submit,
                 onVoice = startVoice,
             )
@@ -270,6 +309,8 @@ fun ShoppingListScreen(viewModel: ShoppingViewModel) {
                         onToggle = { viewModel.toggle(item) },
                         onEdit = { editing = item },
                         onDelete = { viewModel.delete(item) },
+                        onIncrease = { viewModel.increase(item) },
+                        onDecrease = { viewModel.decrease(item) },
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -292,6 +333,8 @@ fun ShoppingListScreen(viewModel: ShoppingViewModel) {
                             onToggle = { viewModel.toggle(item) },
                             onEdit = { editing = item },
                             onDelete = { viewModel.delete(item) },
+                            onIncrease = { viewModel.increase(item) },
+                            onDecrease = { viewModel.decrease(item) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -402,7 +445,7 @@ private fun EmptyState(onQuickAdd: (String) -> Unit, onVoice: () -> Unit) {
         }
         Text("Deine Liste ist leer", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Sag zum Beispiel „Milch, Brot und sechs Eier“ –\noder teile eine Liste aus Gemini mit der App.",
+            "Sag zum Beispiel „Milch, Brot und sechs Eier“ –\noder füge eine kopierte Liste ein (jede Zeile ein Produkt).",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -446,8 +489,9 @@ private fun AddBar(
             TextField(
                 value = value,
                 onValueChange = onValueChange,
-                placeholder = { Text("Produkt hinzufügen …") },
-                singleLine = true,
+                placeholder = { Text("Produkt oder Liste einfügen …", maxLines = 1) },
+                singleLine = false,
+                maxLines = 3,
                 shape = CircleShape,
                 colors = TextFieldDefaults.colors(
                     focusedIndicatorColor = Color.Transparent,

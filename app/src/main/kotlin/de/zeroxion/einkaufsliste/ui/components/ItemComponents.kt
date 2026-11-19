@@ -1,11 +1,18 @@
 package de.zeroxion.einkaufsliste.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,9 +25,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -44,11 +53,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.zeroxion.einkaufsliste.R
 import de.zeroxion.einkaufsliste.data.Category
+import de.zeroxion.einkaufsliste.data.Quantity
 import de.zeroxion.einkaufsliste.data.ShoppingItem
 
 /** Rounded corners for items inside a grouped card: big outside corners, small inner ones. */
@@ -151,6 +164,8 @@ fun ShoppingItemRow(
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onIncrease: () -> Unit,
+    onDecrease: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
@@ -202,7 +217,7 @@ fun ShoppingItemRow(
                         },
                     )
                     .heightIn(min = 60.dp)
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
                     .alpha(if (item.checked) 0.55f else 1f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -218,10 +233,90 @@ fun ShoppingItemRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (!item.quantity.isNullOrBlank()) {
-                    QuantityPill(item.quantity, item.category.tint())
+                val quantity = item.quantity
+                if (!item.checked) {
+                    AmountStepper(
+                        amount = item.amount,
+                        unit = item.unit,
+                        color = item.category.tint(),
+                        onIncrease = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onIncrease()
+                        },
+                        onDecrease = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onDecrease()
+                        },
+                    )
+                } else if (quantity != null) {
+                    QuantityPill(quantity, item.category.tint())
                 }
             }
+        }
+    }
+}
+
+/** Compact "−  2  +" control to change the amount of a product. */
+@Composable
+fun AmountStepper(
+    amount: Double,
+    unit: String?,
+    color: Color,
+    onIncrease: () -> Unit,
+    onDecrease: () -> Unit,
+) {
+    val canDecrease = Quantity.canDecrease(amount, unit)
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.13f)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StepButton(
+            iconRes = R.drawable.ic_remove,
+            description = "Weniger",
+            enabled = canDecrease,
+            onClick = onDecrease,
+        )
+        AnimatedContent(
+            targetState = Quantity.format(amount, unit),
+            transitionSpec = {
+                (slideInVertically { it / 2 } + fadeIn()) togetherWith (slideOutVertically { -it / 2 } + fadeOut())
+            },
+            label = "amount",
+        ) { label ->
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier.widthIn(min = 22.dp, max = 92.dp),
+            )
+        }
+        StepButton(
+            iconRes = null,
+            description = "Mehr",
+            enabled = true,
+            onClick = onIncrease,
+        )
+    }
+}
+
+@Composable
+private fun StepButton(iconRes: Int?, description: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        val tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.3f)
+        if (iconRes != null) {
+            Icon(painterResource(iconRes), contentDescription = description, tint = tint, modifier = Modifier.size(20.dp))
+        } else {
+            Icon(Icons.Rounded.Add, contentDescription = description, tint = tint, modifier = Modifier.size(20.dp))
         }
     }
 }

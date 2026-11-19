@@ -1,16 +1,17 @@
 package de.zeroxion.einkaufsliste.parsing
 
+import de.zeroxion.einkaufsliste.data.Quantity
 import java.util.Locale
 
-/** A product as understood from free text, e.g. "2 Liter Milch" -> (Milch, "2 l"). */
-data class ParsedItem(val name: String, val quantity: String?)
+/** A product as understood from free text, e.g. "2 Liter Milch" -> (Milch, 2.0, "l"). */
+data class ParsedItem(val name: String, val amount: Double? = null, val unit: String? = null)
 
 /**
  * Turns German free text into shopping list entries.
  *
  * Handles three kinds of input:
- *  - spoken sentences: "Setz bitte zwei Liter Milch, Brot und 6 Eier auf die Einkaufsliste"
- *  - lists shared from Gemini or other apps (markdown bullets, headings, numbering)
+ *  - spoken or typed sentences: "Setz bitte zwei Liter Milch, Brot und 6 Eier auf die Einkaufsliste"
+ *  - pasted multi-line text (WhatsApp, notes, Gemini): every line becomes exactly one product
  *  - a single typed product: "500 g Hackfleisch"
  */
 object ItemParser {
@@ -18,39 +19,28 @@ object ItemParser {
     private val de = Locale.GERMAN
 
     private val numberWords = mapOf(
-        "ein" to "1", "eine" to "1", "einen" to "1", "einem" to "1", "einer" to "1", "eins" to "1",
-        "zwei" to "2", "drei" to "3", "vier" to "4", "fünf" to "5", "sechs" to "6", "sieben" to "7",
-        "acht" to "8", "neun" to "9", "zehn" to "10", "elf" to "11", "zwölf" to "12",
-        "zwanzig" to "20", "dreißig" to "30", "halbe" to "½", "halbes" to "½", "halben" to "½",
-        "anderthalb" to "1½", "eineinhalb" to "1½",
+        "ein" to 1.0, "eine" to 1.0, "einen" to 1.0, "einem" to 1.0, "einer" to 1.0, "eins" to 1.0,
+        "zwei" to 2.0, "drei" to 3.0, "vier" to 4.0, "fünf" to 5.0, "sechs" to 6.0, "sieben" to 7.0,
+        "acht" to 8.0, "neun" to 9.0, "zehn" to 10.0, "elf" to 11.0, "zwölf" to 12.0,
+        "zwanzig" to 20.0, "dreißig" to 30.0, "halbe" to 0.5, "halbes" to 0.5, "halben" to 0.5,
+        "anderthalb" to 1.5, "eineinhalb" to 1.5,
     )
 
-    private val units = mapOf(
-        "kg" to "kg", "kilo" to "kg", "kilogramm" to "kg",
-        "g" to "g", "gr" to "g", "gramm" to "g",
-        "l" to "l", "liter" to "l", "ml" to "ml", "milliliter" to "ml",
-        "stück" to "Stück", "stk" to "Stück",
-        "packung" to "Packung", "packungen" to "Packungen", "pack" to "Pack", "packs" to "Pack",
-        "päckchen" to "Päckchen", "paket" to "Paket", "pakete" to "Pakete",
-        "flasche" to "Flasche", "flaschen" to "Flaschen",
-        "dose" to "Dose", "dosen" to "Dosen", "becher" to "Becher",
-        "glas" to "Glas", "gläser" to "Gläser", "tüte" to "Tüte", "tüten" to "Tüten",
-        "beutel" to "Beutel", "bund" to "Bund", "netz" to "Netz",
-        "kiste" to "Kiste", "kisten" to "Kisten", "kasten" to "Kasten",
-        "rolle" to "Rolle", "rollen" to "Rollen", "tafel" to "Tafel", "tafeln" to "Tafeln",
-        "scheibe" to "Scheibe", "scheiben" to "Scheiben", "stange" to "Stange", "stangen" to "Stangen",
-        "karton" to "Karton", "kartons" to "Kartons", "schale" to "Schale", "schalen" to "Schalen",
-        "kopf" to "Kopf", "köpfe" to "Köpfe", "laib" to "Laib", "dutzend" to "Dutzend",
-    )
-
-    private val bullet = Regex("^\\s*(?:[-*•·–—>]+|\\d+[.)]|\\[[ xX]?])\\s*")
+    private val bullet = Regex("^\\s*(?:[-*•·–—>✅☐☑✔️]+|\\d+[.)]|\\[[ xX]?])\\s*")
     private val markdown = Regex("[*_`#]+")
     private val parentheses = Regex("\\s*\\([^)]*\\)")
-    private val separators = Regex("\\s*(?:[,;]|\\bund\\b|\\bsowie\\b|\\bplus\\b|\\baußerdem\\b|\\bdazu\\b)\\s*", RegexOption.IGNORE_CASE)
+
+    /** WhatsApp copy prefix: "[19.11.26, 01:20] Max: Milch" */
+    private val chatPrefix = Regex("^\\[[^\\]]{4,30}]\\s*[^:]{1,40}:\\s+")
+
+    private val separators = Regex(
+        "\\s*(?:[,;]|\\bund\\b|\\bsowie\\b|\\bplus\\b|\\baußerdem\\b|\\bdazu\\b)\\s*",
+        RegexOption.IGNORE_CASE,
+    )
 
     private val leadingCommand = Regex(
         "^(?:hey\\s+\\w+[,!]?\\s*)?(?:bitte\\s+)?" +
-            "(?:(?:setz|setze|pack|packe|füg|füge|schreib|schreibe|trag|trage|notier|notiere|nimm|leg|lege)\\s+(?:mir\\s+|uns\\s+)?(?:bitte\\s+)?(?:noch\\s+)?" +
+            "(?:(?:setz|setze|packe|füg|füge|schreib|schreibe|trag|trage|notier|notiere|nimm|leg|lege)\\s+(?:mir\\s+|uns\\s+)?(?:bitte\\s+)?(?:noch\\s+)?" +
             "|(?:ich|wir)\\s+(?:brauche|brauchen|benötige|benötigen)\\s+(?:noch\\s+)?(?:dringend\\s+)?" +
             "|(?:wir\\s+)?(?:kauf|kaufe|kaufen)\\s+(?:noch\\s+)?" +
             "|noch\\s+)",
@@ -63,35 +53,57 @@ object ItemParser {
         RegexOption.IGNORE_CASE,
     )
 
+    /** True if the text has more than one non-empty line (pasted list). */
+    fun isMultiLine(text: String): Boolean =
+        text.replace("\r", "").split('\n').count { it.isNotBlank() } > 1
+
     /**
      * Parses free text into products.
      * @param fromSpeech speech recognition rarely adds commas ("Milch Brot und Käse"), so
      *   runs of capitalised nouns are split into separate products.
      */
     fun parse(text: String, fromSpeech: Boolean = false): List<ParsedItem> {
-        val lines = text.replace("\r", "").split('\n').map { it.trim() }.filter { it.isNotEmpty() }
-        val multiLine = lines.size > 1
-        val result = mutableListOf<ParsedItem>()
-        for (rawLine in lines) {
-            var line = rawLine.replace(bullet, "").replace(markdown, "").trim()
-            if (line.isEmpty()) continue
-            if (multiLine) {
-                // Headings like "Zutaten:" or "Gemüse:" introduce a group.
-                if (line.endsWith(":")) continue
-                // "Gemüse: Zwiebeln, Karotten" -> keep the part after the label.
-                val colon = line.indexOf(':')
-                if (colon in 1..30) line = line.substring(colon + 1).trim()
-                // Skip chatty sentences such as "Hier ist deine Liste!" or "Guten Appetit!".
-                if (line.endsWith("!") || line.endsWith("?")) continue
-                if (line.split(' ').size > 8) continue
-            }
-            result += parseSentence(line, fromSpeech)
+        val lines = text.replace("\r", "").split('\n')
+            .map { it.replace(chatPrefix, "").trim() }
+            .filter { it.isNotEmpty() }
+        val result = if (lines.size > 1) {
+            lines.flatMap { parseListLine(it) }
+        } else {
+            lines.flatMap { parseSentence(clean(it), fromSpeech) }
         }
         return mergeDuplicates(result)
     }
 
+    private fun clean(line: String): String =
+        line.replace(bullet, "").replace(markdown, "").replace(parentheses, " ").trim()
+
+    /**
+     * One line of a pasted list = one product. "Salz und Pfeffer" stays one entry.
+     * Only Gemini-style group lines ("Gemüse: Zwiebeln, Karotten") are split.
+     */
+    private fun parseListLine(raw: String): List<ParsedItem> {
+        var line = clean(raw)
+        if (line.isEmpty()) return emptyList()
+        // Headings like "Zutaten:" or "Gemüse:" only introduce a group.
+        if (line.endsWith(":")) return emptyList()
+        val words = line.split(' ').size
+        // Chatty sentences such as "Hier ist deine Liste!" or "Kannst du das mitbringen?".
+        if ((line.endsWith("!") || line.endsWith("?")) && words >= 3) return emptyList()
+        if (words > 8) return emptyList()
+
+        val colon = line.indexOf(':')
+        if (colon in 1..30 && colon < line.length - 1) {
+            val after = line.substring(colon + 1).trim()
+            if (after.contains(',') || after.contains(';')) {
+                return after.split(',', ';').mapNotNull { parseFragment(it.trim().trimEnd('.')) }
+            }
+            line = after
+        }
+        return listOfNotNull(parseFragment(line.trim().trimEnd('.', '!', '?')))
+    }
+
     private fun parseSentence(sentence: String, fromSpeech: Boolean): List<ParsedItem> {
-        var s = sentence.replace(parentheses, " ").trim().trimEnd('.', '!', '?')
+        var s = sentence.trim().trimEnd('.', '!', '?')
         s = s.replace(leadingCommand, "").trim()
         s = s.replace(trailingCommand, "").trim()
         if (s.isEmpty()) return emptyList()
@@ -106,11 +118,13 @@ object ItemParser {
     private fun splitSpokenNouns(fragment: String): List<String> {
         val words = fragment.split(' ').filter { it.isNotBlank() }
         if (words.size < 2) return listOf(fragment)
-        val allNouns = words.all { w -> w.first().isUpperCase() && numberWords[w.lowercase(de)] == null && !units.containsKey(w.lowercase(de)) }
+        val allNouns = words.all { w ->
+            w.first().isUpperCase() && numberWords[w.lowercase(de)] == null && Quantity.canonicalUnit(w) == null
+        }
         return if (allNouns) words else listOf(fragment)
     }
 
-    /** "2 Liter Milch" -> (Milch, "2 l"), "ein Brot" -> (Brot, null), "500g Hack" -> (Hack, "500 g"). */
+    /** "2 Liter Milch" -> (Milch, 2, l), "ein Brot" -> (Brot), "500g Hack" -> (Hack, 500, g), "6 Eier" -> (Eier, 6). */
     fun parseFragment(fragment: String): ParsedItem? {
         var rest = fragment.replace(Regex("\\s+"), " ").trim()
         if (rest.isEmpty()) return null
@@ -119,20 +133,21 @@ object ItemParser {
         rest = rest.replace(trailingCommand, "").trim()
         if (rest.isEmpty()) return null
 
-        var amount: String? = null
+        var amount: Double? = null
         var unit: String? = null
 
         // Number at the start, possibly glued to the unit ("500g").
-        val numberMatch = Regex("^(\\d+(?:[.,]\\d+)?|½)\\s*([\\p{L}]+\\.?)?\\s*(.*)$").find(rest)
+        val numberMatch = Regex("^(\\d+(?:[.,]\\d+)?|½)\\s*(?:x|×)?\\s*([\\p{L}]+\\.?)?\\s*(.*)$").find(rest)
         if (numberMatch != null) {
-            amount = numberMatch.groupValues[1].replace('.', ',')
-            val maybeUnit = numberMatch.groupValues[2].trimEnd('.').lowercase(de)
+            amount = Quantity.parseNumber(numberMatch.groupValues[1])
+            val maybeUnit = numberMatch.groupValues[2]
             val tail = numberMatch.groupValues[3]
-            if (maybeUnit.isNotEmpty() && units.containsKey(maybeUnit) && tail.isNotBlank()) {
-                unit = units[maybeUnit]
+            val canonical = if (maybeUnit.isNotEmpty()) Quantity.canonicalUnit(maybeUnit) else null
+            if (canonical != null && tail.isNotBlank()) {
+                unit = canonical
                 rest = tail
             } else {
-                rest = (numberMatch.groupValues[2] + " " + tail).trim()
+                rest = (maybeUnit + " " + tail).trim()
             }
         } else {
             val words = rest.split(' ')
@@ -142,38 +157,50 @@ object ItemParser {
                 var idx = 1
                 val second = words[1].lowercase(de)
                 if (first == "ein" && second == "paar") {
-                    amount = "ein paar"; idx = 2
+                    amount = null; idx = 2
                 } else if (first == "ein" && (second == "halbes" || second == "halber" || second == "halbe")) {
-                    amount = "½"; idx = 2
+                    amount = 0.5; idx = 2
                 } else {
                     amount = number
                 }
-                val unitWord = words.getOrNull(idx)?.lowercase(de)?.trimEnd('.')
-                if (unitWord != null && units.containsKey(unitWord) && words.size > idx + 1) {
-                    unit = units[unitWord]
+                val unitWord = words.getOrNull(idx)
+                val canonical = unitWord?.let { Quantity.canonicalUnit(it) }
+                if (canonical != null && words.size > idx + 1) {
+                    unit = canonical
                     idx++
                 }
                 rest = words.drop(idx).joinToString(" ")
-            } else if (units.containsKey(first.trimEnd('.')) && words.size > 1 && first.length > 2) {
+            } else if (words.size > 1 && first.length > 2 && Quantity.canonicalUnit(first) != null &&
+                first !in setOf("pack", "packs")
+            ) {
                 // "Packung Eier" without a number
-                unit = units[first.trimEnd('.')]
+                unit = Quantity.canonicalUnit(first)
+                amount = 1.0
                 rest = words.drop(1).joinToString(" ")
             }
         }
 
+        // Trailing amount: "Eier x6", "Eier 6x", "Milch (2)"
+        if (amount == null) {
+            Regex("^(.*?)\\s+(?:x|×)\\s*(\\d+)$|^(.*?)\\s+(\\d+)\\s*(?:x|×|stk\\.?|stück)$", RegexOption.IGNORE_CASE)
+                .find(rest)?.let { m ->
+                    val name = m.groupValues[1].ifEmpty { m.groupValues[3] }
+                    val num = m.groupValues[2].ifEmpty { m.groupValues[4] }
+                    if (name.isNotBlank()) {
+                        rest = name
+                        amount = num.toDoubleOrNull()
+                    }
+                }
+        }
+
         rest = rest.removePrefix("von ").removePrefix("an ").trim()
         rest = rest.replace(Regex("^(?:der|die|das|den|dem|etwas|bisschen|ein bisschen)\\s+", RegexOption.IGNORE_CASE), "")
+        rest = rest.trim().trimEnd(',', ';', '-', ':')
         if (rest.isBlank()) return null
         if (rest.length > 60) rest = rest.take(60).trim()
 
-        // A plain "1" without unit before a product ("ein Brot") is noise.
-        val quantity = when {
-            unit != null -> listOfNotNull(amount ?: "1", unit).joinToString(" ")
-            amount == null -> null
-            amount == "1" -> null
-            else -> amount
-        }
-        return ParsedItem(name = capitalize(rest), quantity = quantity)
+        val finalAmount = amount?.takeIf { it > 0 }
+        return ParsedItem(name = capitalize(rest), amount = finalAmount, unit = if (finalAmount == null && unit == null) null else unit)
     }
 
     private fun capitalize(text: String): String =

@@ -5,6 +5,8 @@ Simple, moderne Einkaufslisten-App für Android (Kotlin, Jetpack Compose, Materi
 ## Funktionen
 
 - **Sprechen statt tippen** – Mikrofon antippen und z. B. „Zwei Liter Milch, Brot und sechs Eier“ sagen. Mengen, Einheiten und mehrere Produkte werden erkannt.
+- **Listen einfügen** – Kopierten Text (z. B. aus WhatsApp) ins Eingabefeld einfügen oder ⋮ → *Aus Zwischenablage einfügen*: Jede Zeile wird ein eigener Eintrag.
+- **Plus/Minus** – Hinter jedem Produkt die Anzahl mit − und + einstellen (bei g/ml in 50er/100er-, bei kg/l in 1er-Schritten).
 - **Automatische Kategorien** – Produkte landen sortiert nach Supermarkt-Bereich (Obst & Gemüse, Milch & Käse, Getränke, …).
 - **Aus Gemini übernehmen** – Gemini z. B. nach Zutaten für ein Rezept fragen, Antwort über *Teilen → Einkaufsliste* schicken oder Text markieren → *Zur Einkaufsliste*.
 - **Gemini AppFunctions** – Die App stellt Gemini die Aktionen `addItems`, `getShoppingList`, `checkOffItem`, `removeItem` und `clearCheckedItems` bereit (Android 16+).

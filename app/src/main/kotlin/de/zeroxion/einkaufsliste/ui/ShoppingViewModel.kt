@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import de.zeroxion.einkaufsliste.data.Category
+import de.zeroxion.einkaufsliste.data.Quantity
 import de.zeroxion.einkaufsliste.data.ShoppingItem
 import de.zeroxion.einkaufsliste.data.ShoppingRepository
 import de.zeroxion.einkaufsliste.parsing.ItemParser
@@ -34,7 +35,13 @@ data class ShoppingUiState(
 }
 
 /** One-off messages for the snackbar, optionally with an undo action. */
-data class UiMessage(val text: String, val undo: List<ShoppingItem> = emptyList())
+data class UiMessage(
+    val text: String,
+    val undo: List<ShoppingItem> = emptyList(),
+    val removeOnUndo: List<String> = emptyList(),
+) {
+    val canUndo: Boolean get() = undo.isNotEmpty() || removeOnUndo.isNotEmpty()
+}
 
 class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel() {
 
@@ -76,9 +83,24 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
             }
             val prefix = if (source != null) "$source: " else ""
             if (fromSpeech || source != null || result.count > 1 || result.updated.isNotEmpty()) {
-                _messages.send(UiMessage(prefix + msg))
+                _messages.send(
+                    UiMessage(
+                        text = prefix + msg,
+                        undo = result.previous,
+                        removeOnUndo = result.added.map { it.id },
+                    ),
+                )
             }
         }
+    }
+
+    fun increase(item: ShoppingItem) {
+        viewModelScope.launch { repository.stepAmount(item.id, up = true) }
+    }
+
+    fun decrease(item: ShoppingItem) {
+        if (!Quantity.canDecrease(item.amount, item.unit)) return
+        viewModelScope.launch { repository.stepAmount(item.id, up = false) }
     }
 
     fun toggle(item: ShoppingItem) {
@@ -93,8 +115,12 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
         }
     }
 
-    fun update(item: ShoppingItem, name: String, quantity: String?, category: Category) {
-        viewModelScope.launch { repository.update(item.id, name, quantity, category) }
+    /** [quantity] is free text like "500 g", "3" or "2 Packungen"; empty means 1 piece. */
+    fun update(item: ShoppingItem, name: String, quantity: String, category: Category) {
+        val parsed = Quantity.parse(quantity)
+        val amount = parsed?.first ?: 1.0
+        val unit = parsed?.second ?: quantity.trim().takeIf { parsed == null && it.isNotEmpty() && it.none(Char::isDigit) }
+        viewModelScope.launch { repository.update(item.id, name, amount, unit, category) }
     }
 
     fun clearChecked() {
@@ -115,8 +141,8 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
         }
     }
 
-    fun undo(items: List<ShoppingItem>) {
-        viewModelScope.launch { repository.restore(items) }
+    fun undo(message: UiMessage) {
+        viewModelScope.launch { repository.restore(message.undo, message.removeOnUndo) }
     }
 
     fun toggleShowChecked() {
