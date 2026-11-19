@@ -11,4 +11,15 @@
             android:targetClass="de.zeroxion.einkaufsliste.MainActivity"
             android:targetPackage="de.zeroxion.einkaufsliste" />
     </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_scan"
+        android:shortcutId="scan_pantry"
+        android:shortcutLongLabel="@string/shortcut_scan_long"
+        android:shortcutShortLabel="@string/shortcut_scan_short">
+        <intent
+            android:action="de.zeroxion.einkaufsliste.action.SCAN_PANTRY"
+            android:targetClass="de.zeroxion.einkaufsliste.MainActivity"
+            android:targetPackage="de.zeroxion.einkaufsliste" />
+    </shortcut>
 </shortcuts>

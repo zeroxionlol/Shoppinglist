@@ -68,4 +68,15 @@ dependencies {
     // Gemini / AppFunctions
     implementation(libs.androidx.appfunctions)
     ksp(libs.androidx.appfunctions.compiler)
+
+    // Vorrat (MHD): camera, barcode and text recognition run completely on the phone
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.mlkit.barcode)
+    implementation(libs.mlkit.text)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.org.json) // real org.json instead of the Android stub
 }

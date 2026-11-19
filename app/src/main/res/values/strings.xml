@@ -5,6 +5,8 @@
     <string name="process_text_label">Zur Einkaufsliste</string>
     <string name="shortcut_voice_short">Sprechen</string>
     <string name="shortcut_voice_long">Per Sprache hinzufügen</string>
+    <string name="shortcut_scan_short">MHD scannen</string>
+    <string name="shortcut_scan_long">Produkt mit MHD scannen</string>
 
     <string name="app_function_app_description">Manages the user\'s grocery shopping list (German: Einkaufsliste). Use it to add products, read the current list, check off bought products or remove products.</string>
     <string name="app_function_app_display_description">Einkaufsliste</string>
