@@ -46,6 +46,19 @@ jobs:
           echo "APK: $APK"
           unzip -l "$APK" | grep -i -E "app_function|\.xsd" || echo "WARN: no AppFunction assets found"
 
+      - name: Check ML Kit survived R8
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          DEXDUMP=$(ls "$ANDROID_HOME"/build-tools/*/dexdump 2>/dev/null | tail -1)
+          if [ -z "$DEXDUMP" ]; then echo "::warning::dexdump nicht gefunden, Pruefung uebersprungen"; exit 0; fi
+          rm -rf /tmp/dex && mkdir /tmp/dex && unzip -o -q "$APK" 'classes*.dex' -d /tmp/dex
+          for d in /tmp/dex/*.dex; do "$DEXDUMP" "$d"; done > /tmp/dexdump.txt
+          for c in BarcodeRegistrar TextRegistrar VisionCommonRegistrar CommonComponentRegistrar; do
+            awk -v c="/$c;" '/^Class #/{inb=0} /Class descriptor/ && index($0, c){inb=1} inb && /name *: .<init>./{f=1} END{exit !f}' /tmp/dexdump.txt \
+              || { echo "::error::$c hat in der APK keinen Konstruktor mehr - ML Kit wuerde abstuerzen"; exit 1; }
+            echo "$c ok"
+          done
+
       - name: Rename APK
         run: |
           mkdir -p dist

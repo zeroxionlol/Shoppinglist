@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import de.zeroxion.einkaufsliste.CrashReportDialog
 import de.zeroxion.einkaufsliste.R
 import de.zeroxion.einkaufsliste.pantry.ui.ExpiredColor
 import de.zeroxion.einkaufsliste.pantry.ui.PantryScreen
@@ -49,6 +50,7 @@ fun AppRoot(
     val showBar = !WindowInsets.isImeVisible
 
     BackHandler(enabled = tab != AppTab.SHOPPING) { onTabChange(AppTab.SHOPPING) }
+    CrashReportDialog()
 
     Column(Modifier.fillMaxSize()) {
         Box(

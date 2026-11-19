@@ -176,20 +176,19 @@ private fun CameraContent(
 
     DisposableEffect(lifecycleOwner, mode) {
         val executor = Executors.newSingleThreadExecutor()
-        val analyzer: FrameAnalyzer = when (mode) {
-            ScanMode.BARCODE -> BarcodeAnalyzer { code ->
+        // If ML Kit cannot start, show a message instead of taking the whole app down.
+        val analyzer: FrameAnalyzer? = try {
+            createAnalyzer(mode, onStatus = { status = it }) { result ->
                 found = true
                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                currentOnBarcode(code)
+                when (result) {
+                    is String -> currentOnBarcode(result)
+                    is DateHit -> currentOnDate(result)
+                }
             }
-            ScanMode.DATE -> DateAnalyzer(
-                onStatus = { status = it },
-                onHit = { hit ->
-                    found = true
-                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                    currentOnDate(hit)
-                },
-            )
+        } catch (t: Throwable) {
+            status = "Scanner konnte nicht gestartet werden (${t.javaClass.simpleName}). Datum bitte eintippen."
+            null
         }
         var provider: ProcessCameraProvider? = null
         var disposed = false
@@ -211,18 +210,22 @@ private fun CameraContent(
                     )
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
-                analysis.setAnalyzer(executor, analyzer)
                 p.unbindAll()
-                camera = p.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                camera = if (analyzer != null) {
+                    analysis.setAnalyzer(executor, analyzer)
+                    p.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                } else {
+                    p.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview)
+                }
             } catch (e: Exception) {
-                status = "Kamera nicht verfügbar"
+                status = "Kamera nicht verfügbar (${e.javaClass.simpleName})"
             }
         }, ContextCompat.getMainExecutor(context))
 
         onDispose {
             disposed = true
             provider?.unbindAll()
-            analyzer.close()
+            analyzer?.close()
             executor.shutdown()
         }
     }
@@ -308,6 +311,13 @@ private fun CameraContent(
 
 private interface FrameAnalyzer : ImageAnalysis.Analyzer, Closeable
 
+/** [onResult] gets a barcode (String) or a [DateHit]. */
+private fun createAnalyzer(mode: ScanMode, onStatus: (String) -> Unit, onResult: (Any) -> Unit): FrameAnalyzer =
+    when (mode) {
+        ScanMode.BARCODE -> BarcodeAnalyzer { onResult(it) }
+        ScanMode.DATE -> DateAnalyzer(onStatus = onStatus, onHit = { onResult(it) })
+    }
+
 /** EAN-13/EAN-8/UPC barcodes with ML Kit (offline). */
 private class BarcodeAnalyzer(private val onCode: (String) -> Unit) : FrameAnalyzer {
     private val scanner = BarcodeScanning.getClient(
@@ -326,15 +336,19 @@ private class BarcodeAnalyzer(private val onCode: (String) -> Unit) : FrameAnaly
             proxy.close()
             return
         }
-        scanner.process(InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees))
-            .addOnSuccessListener { codes ->
-                val code = codes.firstNotNullOfOrNull { it.rawValue?.takeIf(String::isNotBlank) }
-                if (code != null && !done) {
-                    done = true
-                    onCode(code)
+        try {
+            scanner.process(InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees))
+                .addOnSuccessListener { codes ->
+                    val code = codes.firstNotNullOfOrNull { it.rawValue?.takeIf(String::isNotBlank) }
+                    if (code != null && !done) {
+                        done = true
+                        onCode(code)
+                    }
                 }
-            }
-            .addOnCompleteListener { proxy.close() }
+                .addOnCompleteListener { proxy.close() }
+        } catch (t: Throwable) {
+            proxy.close()
+        }
     }
 
     override fun close() = scanner.close()
@@ -365,31 +379,36 @@ private class DateAnalyzer(
         val upright = rotation == 90 || rotation == 270
         val width = if (upright) proxy.height else proxy.width
         val height = if (upright) proxy.width else proxy.height
-        recognizer.process(InputImage.fromMediaImage(media, rotation))
-            .addOnSuccessListener { result ->
-                if (done) return@addOnSuccessListener
-                val lines = result.textBlocks.flatMap { it.lines }.filter { line ->
-                    val box = line.boundingBox ?: return@filter true
-                    val cy = box.exactCenterY() / height
-                    val cx = box.exactCenterX() / width
-                    cy in 0.28f..0.72f && cx in 0.05f..0.95f
+        try {
+            recognizer.process(InputImage.fromMediaImage(media, rotation))
+                .addOnSuccessListener { result ->
+                    if (done) return@addOnSuccessListener
+                    val lines = result.textBlocks.flatMap { it.lines }.filter { line ->
+                        val box = line.boundingBox ?: return@filter true
+                        val cy = box.exactCenterY() / height
+                        val cx = box.exactCenterX() / width
+                        cy in 0.28f..0.72f && cx in 0.05f..0.95f
+                    }
+                    val text = lines.joinToString(" ") { it.text }.replace(Regex("\\s+"), " ").trim()
+                    val hit = MhdDateParser.parse(text)
+                    if (MhdDateParser.confirm(history, hit)) {
+                        done = true
+                        onHit(hit!!)
+                    } else {
+                        onStatus(
+                            when {
+                                hit != null -> "Gelesen: ${hit.date.format(PantryViewModel.GERMAN_DATE)} – ruhig halten …"
+                                text.isNotEmpty() -> "Gelesen: " + text.take(40)
+                                else -> "Suche Datum …"
+                            },
+                        )
+                    }
                 }
-                val text = lines.joinToString(" ") { it.text }.replace(Regex("\\s+"), " ").trim()
-                val hit = MhdDateParser.parse(text)
-                if (MhdDateParser.confirm(history, hit)) {
-                    done = true
-                    onHit(hit!!)
-                } else {
-                    onStatus(
-                        when {
-                            hit != null -> "Gelesen: ${hit.date.format(PantryViewModel.GERMAN_DATE)} – ruhig halten …"
-                            text.isNotEmpty() -> "Gelesen: " + text.take(40)
-                            else -> "Suche Datum …"
-                        },
-                    )
-                }
-            }
-            .addOnCompleteListener { proxy.close() }
+                .addOnCompleteListener { proxy.close() }
+        } catch (t: Throwable) {
+            proxy.close()
+            onStatus("Texterkennung fehlgeschlagen – Datum bitte eintippen.")
+        }
     }
 
     override fun close() = recognizer.close()
